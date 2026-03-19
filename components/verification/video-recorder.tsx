@@ -43,7 +43,7 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: "environment" },
         audio: true,
       });
       streamRef.current = stream;
@@ -65,10 +65,16 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
     frameDataUrlsRef.current = [];
 
     // Create a reusable off-screen canvas for frame capture.
+    // Scale down to max FRAME_WIDTH/FRAME_HEIGHT while preserving aspect ratio.
     if (!captureCanvasRef.current) {
       const canvas = document.createElement("canvas");
-      canvas.width = FRAME_WIDTH;
-      canvas.height = FRAME_HEIGHT;
+      const track = streamRef.current?.getVideoTracks()[0];
+      const settings = track?.getSettings();
+      const sw = settings?.width ?? FRAME_WIDTH;
+      const sh = settings?.height ?? FRAME_HEIGHT;
+      const ratio = Math.min(FRAME_WIDTH / sw, FRAME_HEIGHT / sh, 1);
+      canvas.width = Math.round(sw * ratio);
+      canvas.height = Math.round(sh * ratio);
       captureCanvasRef.current = canvas;
     }
 
@@ -159,7 +165,7 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
 
   return (
     <div className="space-y-3">
-      <div className="relative bg-neutral-900 rounded-lg overflow-hidden aspect-video flex items-center justify-center">
+      <div className="relative bg-neutral-900 rounded-lg overflow-hidden flex items-center justify-center" style={{ aspectRatio: "auto", minHeight: "240px" }}>
         {state === "idle" && (
           <div className="text-center text-neutral-400">
             <Video size={40} className="mx-auto mb-2" />

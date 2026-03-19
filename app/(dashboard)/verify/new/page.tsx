@@ -116,12 +116,16 @@ export default function NewVerificationPage() {
 
     setSubmitting(true);
     try {
-      // Upload the video blob for in-app playback.
-      await uploadMedia(
-        new File([capturedVideo], "capture.webm", { type: capturedVideo.type }),
-        "captured_video",
-        verificationId
-      );
+      // Upload the video blob for in-app playback (best-effort — large files may exceed 4 MB limit).
+      try {
+        await uploadMedia(
+          new File([capturedVideo], "capture.webm", { type: capturedVideo.type }),
+          "captured_video",
+          verificationId
+        );
+      } catch (e) {
+        console.warn("Video upload skipped (file too large for playback):", e);
+      }
 
       // Upload extracted frames sequentially — more reliable on iOS Safari.
       for (let i = 0; i < capturedFrames.length; i++) {
