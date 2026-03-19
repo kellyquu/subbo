@@ -73,7 +73,9 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
     }
 
     const mimeType = getSupportedMimeType();
-    const mr = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : {});
+    const mr = mimeType
+      ? new MediaRecorder(streamRef.current, { mimeType })
+      : new MediaRecorder(streamRef.current);
     mediaRecorderRef.current = mr;
 
     mr.ondataavailable = (e) => {
@@ -226,6 +228,8 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
 }
 
 function getSupportedMimeType(): string {
+  // isTypeSupported is absent on some older Safari/iOS versions.
+  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
   const types = [
     "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
