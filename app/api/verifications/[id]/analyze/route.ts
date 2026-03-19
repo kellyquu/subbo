@@ -68,6 +68,10 @@ export async function POST(
     );
   }
 
+  // Diagnostic: confirm service role key is loaded (log length only, not value)
+  const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  console.log("[analyze] SUPABASE_SERVICE_ROLE_KEY defined:", !!svcKey, "length:", svcKey?.length ?? 0);
+
   try {
     const result = await runAnalysis({
       referenceImagePaths,
@@ -76,9 +80,11 @@ export async function POST(
       useCase: verification.use_case as UseCase,
     });
 
-    // Use service client to bypass RLS — ownership was already verified above.
-    const serviceDb = createServiceClient();
-    const { error: insertError } = await serviceDb
+    // Insert result — try service client first (bypasses RLS), fall back to
+    // the authenticated user client if the service key isn't available.
+    const svcKeyAvailable = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const insertDb = svcKeyAvailable ? createServiceClient() : db;
+    const { error: insertError } = await insertDb
       .from("verification_results")
       .insert({
         verification_id: id,
