@@ -72,7 +72,8 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
       captureCanvasRef.current = canvas;
     }
 
-    const mr = new MediaRecorder(streamRef.current, { mimeType: getSupportedMimeType() });
+    const mimeType = getSupportedMimeType();
+    const mr = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : {});
     mediaRecorderRef.current = mr;
 
     mr.ondataavailable = (e) => {
@@ -229,6 +230,7 @@ function getSupportedMimeType(): string {
     "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
     "video/webm",
+    "video/mp4;codecs=avc1",
     "video/mp4",
   ];
   for (const type of types) {
