@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getUserByAuthId } from "@/lib/db";
 import { runAnalysis } from "@/services/verification-analysis";
 import type { UseCase } from "@/types";
@@ -49,17 +49,21 @@ export async function POST(
     .filter((m) => m.media_type === "reference_image")
     .map((m) => m.storage_path);
 
+  const capturedFramePaths = (media ?? [])
+    .filter((m) => m.media_type === "captured_frame")
+    .map((m) => m.storage_path);
+
   const capturedVideoPaths = (media ?? [])
     .filter((m) => m.media_type === "captured_video")
     .map((m) => m.storage_path);
 
-  if (referenceImagePaths.length === 0 || capturedVideoPaths.length === 0) {
+  if (referenceImagePaths.length === 0 || (capturedFramePaths.length === 0 && capturedVideoPaths.length === 0)) {
     await db
       .from("verifications")
       .update({ status: "failed" })
       .eq("id", id);
     return NextResponse.json(
-      { error: "Missing reference images or captured video" },
+      { error: "Missing reference images or captured frames" },
       { status: 422 }
     );
   }
@@ -68,20 +72,24 @@ export async function POST(
     const result = await runAnalysis({
       referenceImagePaths,
       capturedVideoPaths,
+      capturedFramePaths,
       useCase: verification.use_case as UseCase,
     });
 
-    // Upsert result
-    const { data: savedResult } = await db
+    // Use service client to bypass RLS — ownership was already verified above.
+    const serviceDb = createServiceClient();
+    const { error: insertError } = await serviceDb
       .from("verification_results")
-      .upsert({
+      .insert({
         verification_id: id,
         similarity_score: result.similarity_score,
         summary: result.summary,
         metadata: result.metadata,
-      })
-      .select()
-      .single();
+      });
+
+    if (insertError) {
+      throw new Error(`Failed to save result: ${insertError.message}`);
+    }
 
     // Create public share if not exists
     let slug: string;
@@ -120,7 +128,7 @@ export async function POST(
       .update({ status: "complete" })
       .eq("id", id);
 
-    return NextResponse.json({ result: savedResult, slug }, { status: 200 });
+    return NextResponse.json({ slug }, { status: 200 });
   } catch (err) {
     await db
       .from("verifications")

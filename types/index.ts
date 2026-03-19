@@ -14,6 +14,7 @@ export type VerificationStatus =
 export type MediaType =
   | "reference_image"
   | "captured_video"
+  | "captured_frame"
   | "derived_thumbnail";
 
 export interface User {
@@ -82,6 +83,8 @@ export interface VerificationWithDetails extends Verification {
 export interface AnalysisInput {
   referenceImagePaths: string[];
   capturedVideoPaths: string[];
+  /** Preferred over capturedVideoPaths; individual frames extracted in-browser. */
+  capturedFramePaths?: string[];
   useCase: UseCase;
 }
 

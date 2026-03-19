@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/client";
 import { ImageUploader } from "@/components/verification/image-uploader";
 import { VideoRecorder } from "@/components/verification/video-recorder";
 import { Button } from "@/components/ui/button";
@@ -37,6 +36,7 @@ export default function NewVerificationPage() {
   const [verificationId, setVerificationId] = useState<string | null>(null);
   const [referenceImages, setReferenceImages] = useState<File[]>([]);
   const [capturedVideo, setCapturedVideo] = useState<Blob | null>(null);
+  const [capturedFrames, setCapturedFrames] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const {
@@ -94,19 +94,42 @@ export default function NewVerificationPage() {
     }
   }
 
-  // Step 3 → 4: upload captured video then trigger analysis
+  // Called by VideoRecorder when recording stops.
+  function handleVideoCapture(blob: Blob, frames: string[]) {
+    setCapturedVideo(blob);
+    setCapturedFrames(frames);
+  }
+
+  // Step 3 → 4: upload frames + video, then trigger analysis
   async function uploadVideoAndAnalyze() {
     if (!capturedVideo || !verificationId) {
       toast.error("Please record a video first");
       return;
     }
+    if (capturedFrames.length === 0) {
+      toast.error("No frames were captured. Please re-record (hold for at least 1 second).");
+      return;
+    }
 
     setSubmitting(true);
     try {
+      // Upload the video blob for in-app playback.
       await uploadMedia(
         new File([capturedVideo], "capture.webm", { type: capturedVideo.type }),
         "captured_video",
         verificationId
+      );
+
+      // Upload extracted frames — these are what the analysis actually uses.
+      await Promise.all(
+        capturedFrames.map((dataUrl, i) => {
+          const blob = dataURLtoBlob(dataUrl);
+          return uploadMedia(
+            new File([blob], `frame-${i}.jpg`, { type: "image/jpeg" }),
+            "captured_frame",
+            verificationId
+          );
+        })
       );
 
       const res = await fetch(`/api/verifications/${verificationId}/analyze`, {
@@ -115,7 +138,7 @@ export default function NewVerificationPage() {
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error ?? "Analysis failed");
+        throw new Error(err.detail ?? err.error ?? "Analysis failed");
       }
 
       router.push(`/verify/${verificationId}`);
@@ -261,7 +284,13 @@ export default function NewVerificationPage() {
             against your reference images.
           </div>
 
-          <VideoRecorder onCapture={setCapturedVideo} maxSeconds={120} />
+          <VideoRecorder onCapture={handleVideoCapture} maxSeconds={120} />
+
+          {capturedFrames.length > 0 && (
+            <p className="text-xs text-neutral-500">
+              {capturedFrames.length} frame{capturedFrames.length !== 1 ? "s" : ""} captured for analysis
+            </p>
+          )}
 
           <div className="flex justify-between">
             <Button variant="outline" onClick={() => setStep(2)} className="gap-2" disabled={submitting}>
@@ -310,4 +339,14 @@ async function uploadMedia(
     const err = await res.json();
     throw new Error(err.error ?? "Upload failed");
   }
+}
+
+/** Convert a data-URL (e.g. from canvas.toDataURL) to a Blob. */
+function dataURLtoBlob(dataURL: string): Blob {
+  const [header, data] = dataURL.split(",");
+  const mimeType = header.match(/:(.*?);/)?.[1] ?? "image/jpeg";
+  const bytes = atob(data);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], { type: mimeType });
 }

@@ -4,10 +4,23 @@ import { useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Video, Square, RotateCcw } from "lucide-react";
 
+/** Max frames to capture during recording (1 per second, capped). */
+const MAX_FRAMES = 10;
+/** JPEG quality for captured frames (0–1). */
+const FRAME_QUALITY = 0.75;
+/** Canvas dimensions for captured frames. */
+const FRAME_WIDTH = 640;
+const FRAME_HEIGHT = 360;
+
 type RecordingState = "idle" | "ready" | "recording" | "done";
 
 interface VideoRecorderProps {
-  onCapture: (blob: Blob) => void;
+  /**
+   * Called when recording finishes.
+   * @param blob  The full video blob (used for in-app playback).
+   * @param frames  JPEG data-URLs extracted at ~1 fps during recording.
+   */
+  onCapture: (blob: Blob, frames: string[]) => void;
   maxSeconds?: number;
 }
 
@@ -16,6 +29,8 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const frameDataUrlsRef = useRef<string[]>([]);
 
   const [state, setState] = useState<RecordingState>("idle");
   const [elapsed, setElapsed] = useState(0);
@@ -47,6 +62,16 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
     if (!streamRef.current) return;
 
     chunksRef.current = [];
+    frameDataUrlsRef.current = [];
+
+    // Create a reusable off-screen canvas for frame capture.
+    if (!captureCanvasRef.current) {
+      const canvas = document.createElement("canvas");
+      canvas.width = FRAME_WIDTH;
+      canvas.height = FRAME_HEIGHT;
+      captureCanvasRef.current = canvas;
+    }
+
     const mr = new MediaRecorder(streamRef.current, { mimeType: getSupportedMimeType() });
     mediaRecorderRef.current = mr;
 
@@ -58,7 +83,7 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
       const blob = new Blob(chunksRef.current, { type: mr.mimeType });
       const url = URL.createObjectURL(blob);
       setRecordedUrl(url);
-      onCapture(blob);
+      onCapture(blob, frameDataUrlsRef.current);
       setState("done");
       stopStream();
     };
@@ -68,6 +93,27 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
     setElapsed(0);
 
     timerRef.current = setInterval(() => {
+      // Capture a frame from the live video every second (up to MAX_FRAMES).
+      if (
+        frameDataUrlsRef.current.length < MAX_FRAMES &&
+        videoRef.current &&
+        captureCanvasRef.current
+      ) {
+        const ctx = captureCanvasRef.current.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(
+            videoRef.current,
+            0,
+            0,
+            captureCanvasRef.current.width,
+            captureCanvasRef.current.height
+          );
+          frameDataUrlsRef.current.push(
+            captureCanvasRef.current.toDataURL("image/jpeg", FRAME_QUALITY)
+          );
+        }
+      }
+
       setElapsed((s) => {
         if (s + 1 >= maxSeconds) {
           stopRecording();
@@ -93,6 +139,7 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
     setRecordedUrl(null);
     setElapsed(0);
     setState("idle");
+    frameDataUrlsRef.current = [];
     stopStream();
   }, [recordedUrl, stopStream]);
 

@@ -35,7 +35,7 @@ export async function POST(
     return NextResponse.json({ error: "file and media_type required" }, { status: 400 });
   }
 
-  const allowed = ["reference_image", "captured_video", "derived_thumbnail"];
+  const allowed = ["reference_image", "captured_video", "captured_frame", "derived_thumbnail"];
   if (!allowed.includes(mediaType)) {
     return NextResponse.json({ error: "Invalid media_type" }, { status: 400 });
   }
