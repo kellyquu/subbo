@@ -83,11 +83,14 @@ export default function NewVerificationPage() {
 
     setSubmitting(true);
     try {
-      await Promise.all(
-        referenceImages.map((file) => uploadMedia(file, "reference_image", verificationId))
-      );
+      // iOS Safari is less reliable with many concurrent multipart uploads.
+      // Upload sequentially to avoid intermittent "expected pattern" failures.
+      for (const file of referenceImages) {
+        await uploadMedia(file, "reference_image", verificationId);
+      }
       setStep(3);
     } catch (e) {
+      console.error("Reference upload failed:", e);
       toast.error(String(e));
     } finally {
       setSubmitting(false);
@@ -120,25 +123,30 @@ export default function NewVerificationPage() {
         verificationId
       );
 
-      // Upload extracted frames — these are what the analysis actually uses.
-      await Promise.all(
-        capturedFrames.map((dataUrl, i) => {
-          const blob = dataURLtoBlob(dataUrl);
-          return uploadMedia(
-            new File([blob], `frame-${i}.jpg`, { type: "image/jpeg" }),
-            "captured_frame",
-            verificationId
-          );
-        })
-      );
+      // Upload extracted frames sequentially — more reliable on iOS Safari.
+      for (let i = 0; i < capturedFrames.length; i++) {
+        const blob = dataURLtoBlob(capturedFrames[i]);
+        await uploadMedia(
+          new File([blob], `frame-${i}.jpg`, { type: "image/jpeg" }),
+          "captured_frame",
+          verificationId
+        );
+      }
 
       const res = await fetch(`/api/verifications/${verificationId}/analyze`, {
         method: "POST",
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail ?? err.error ?? "Analysis failed");
+        let message = `Analysis failed (HTTP ${res.status})`;
+        try {
+          const contentType = res.headers.get("content-type") ?? "";
+          if (contentType.includes("application/json")) {
+            const err = await res.json();
+            message = err.detail ?? err.error ?? message;
+          }
+        } catch { /* ignore */ }
+        throw new Error(message);
       }
 
       router.push(`/verify/${verificationId}`);
@@ -330,14 +338,35 @@ async function uploadMedia(
   form.append("file", file);
   form.append("media_type", mediaType);
 
-  const res = await fetch(`/api/verifications/${verificationId}/media`, {
+  // Use absolute URL for Safari compatibility in some contexts.
+  const base =
+    typeof window !== "undefined" ? window.location.origin : "";
+  const endpoint = base
+    ? `${base}/api/verifications/${verificationId}/media`
+    : `/api/verifications/${verificationId}/media`;
+
+  const res = await fetch(endpoint, {
     method: "POST",
     body: form,
   });
 
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error ?? "Upload failed");
+    // Safely parse — server may return HTML (e.g. Next.js 500 page) not JSON.
+    // WebKit throws SyntaxError from res.json() when body isn't valid JSON.
+    let message = `Upload failed (HTTP ${res.status})`;
+    try {
+      const contentType = res.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        const err = await res.json();
+        message = err.error ?? message;
+      } else {
+        const text = await res.text();
+        console.error("Upload error response (non-JSON):", res.status, text.slice(0, 500));
+      }
+    } catch {
+      // ignore parse error — status code message is enough
+    }
+    throw new Error(message);
   }
 }
 
