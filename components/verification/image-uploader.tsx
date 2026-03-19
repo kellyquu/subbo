@@ -1,8 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import Image from "next/image";
-import { Button } from "@/components/ui/button";
 import { X, ImagePlus } from "lucide-react";
 
 interface ImageUploaderProps {
@@ -14,11 +12,20 @@ export function ImageUploader({ onChange, maxImages = 10 }: ImageUploaderProps) 
   const [previews, setPreviews] = useState<{ file: File; url: string }[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [warning, setWarning] = useState<string | null>(null);
+
   function handleFiles(incoming: FileList | null) {
     if (!incoming) return;
+    setWarning(null);
 
-    const newFiles = Array.from(incoming)
-      .filter((f) => f.type.startsWith("image/"))
+    const all = Array.from(incoming);
+    const heic = all.filter((f) => f.type === "image/heic" || f.type === "image/heif" || f.name.toLowerCase().endsWith(".heic") || f.name.toLowerCase().endsWith(".heif"));
+    if (heic.length > 0) {
+      setWarning("iPhone HEIC photos aren't supported. In your Camera app go to Settings → Camera → Formats → Most Compatible to shoot in JPEG instead.");
+    }
+
+    const newFiles = all
+      .filter((f) => f.type.startsWith("image/") && f.type !== "image/heic" && f.type !== "image/heif")
       .slice(0, maxImages - previews.length);
 
     if (newFiles.length === 0) return;
@@ -70,15 +77,20 @@ export function ImageUploader({ onChange, maxImages = 10 }: ImageUploaderProps) 
         />
       </div>
 
+      {warning && (
+        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{warning}</p>
+      )}
+
       {previews.length > 0 && (
         <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
           {previews.map((p, i) => (
             <div key={i} className="relative group aspect-square rounded-md overflow-hidden bg-neutral-100">
-              <Image
+              {/* Plain img — blob URLs can't go through Next.js image optimization */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={p.url}
                 alt={`Reference ${i + 1}`}
-                fill
-                className="object-cover"
+                className="w-full h-full object-cover"
               />
               <button
                 type="button"

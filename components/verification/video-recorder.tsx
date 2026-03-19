@@ -72,10 +72,16 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
       captureCanvasRef.current = canvas;
     }
 
-    const mimeType = getSupportedMimeType();
-    const mr = mimeType
-      ? new MediaRecorder(streamRef.current, { mimeType })
-      : new MediaRecorder(streamRef.current);
+    let mr: MediaRecorder;
+    try {
+      const mimeType = getSupportedMimeType();
+      mr = mimeType
+        ? new MediaRecorder(streamRef.current, { mimeType })
+        : new MediaRecorder(streamRef.current);
+    } catch (err) {
+      setError(`MediaRecorder init failed: ${String(err)}`);
+      return;
+    }
     mediaRecorderRef.current = mr;
 
     mr.ondataavailable = (e) => {
@@ -83,7 +89,8 @@ export function VideoRecorder({ onCapture, maxSeconds = 60 }: VideoRecorderProps
     };
 
     mr.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: mr.mimeType });
+      const blobType = mr.mimeType || "video/mp4";
+      const blob = new Blob(chunksRef.current, { type: blobType });
       const url = URL.createObjectURL(blob);
       setRecordedUrl(url);
       onCapture(blob, frameDataUrlsRef.current);
